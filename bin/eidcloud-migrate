@@ -1,0 +1,136 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Pure PHP autoloader
+spl_autoload_register(function ($class) {
+    $prefix = 'EidCloud\\CodeMigration\\';
+    $baseDir = __DIR__ . '/../src/';
+    $len = strlen($prefix);
+    if (strncmp($prefix, $class, $len) !== 0) {
+        return;
+    }
+    $relativeClass = substr($class, $len);
+    $file = $baseDir . str_replace('\\', '/', $relativeClass) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+use EidCloud\CodeMigration\MigrationEngine;
+use EidCloud\CodeMigration\Diff\DiffFormatter;
+
+function printUsage(): void
+{
+    echo "\033[1;36m🔄 EidCloud Code Migration CLI v1.0.0\033[0m\n";
+    echo "Universal AST Code Migration & Syntax Transformation Engine\n\n";
+    echo "\033[1;33mUSAGE:\033[0m\n";
+    echo "  php bin/eidcloud-migrate <command> <path> [options]\n\n";
+    echo "\033[1;33mCOMMANDS:\033[0m\n";
+    echo "  \033[32mplan\033[0m    Inspect code, generate AST migrations and output unified diff without modifying files\n";
+    echo "  \033[32mapply\033[0m   Perform AST migrations on target files with safety checks and optional backup\n\n";
+    echo "\033[1;33mOPTIONS:\033[0m\n";
+    echo "  \033[36m--rule=<pack|id>\033[0m  Rule selector or pack name (e.g. php84, mysqli, callbacks, all). Default: all\n";
+    echo "  \033[36m--backup\033[0m          Create .bak backup copies before modifying files (for apply command)\n";
+    echo "  \033[36m--no-color\033[0m        Disable ANSI color codes in terminal output\n";
+    echo "  \033[36m-h, --help\033[0m        Display this help message\n\n";
+    echo "\033[1;33mBUILT-IN MIGRATION PACKS:\033[0m\n";
+    echo "  • \033[1mphp84\033[0m     : PHP 7.4 -> PHP 8.4 (nullsafe ?->, typed properties, match expressions)\n";
+    echo "  • \033[1mmysqli\033[0m    : Legacy procedural mysqli_* -> Modern PDO object-oriented calls\n";
+    echo "  • \033[1mcallbacks\033[0m : Single-return closures -> Arrow functions fn() => ...\n";
+    echo "  • \033[1mall\033[0m       : Apply all available migration rules\n\n";
+    echo "\033[1;33mEXAMPLES:\033[0m\n";
+    echo "  php bin/eidcloud-migrate plan ./project/ --rule=php84\n";
+    echo "  php bin/eidcloud-migrate apply ./project/ --rule=php84 --backup\n";
+    echo "  php bin/eidcloud-migrate plan ./legacy.php --rule=mysqli\n\n";
+}
+
+$argv = $_SERVER['argv'] ?? [];
+$args = array_slice($argv, 1);
+
+if (empty($args) || in_array('-h', $args, true) || in_array('--help', $args, true)) {
+    printUsage();
+    exit(0);
+}
+
+$command = null;
+$targetPath = null;
+$ruleSelector = 'all';
+$backup = false;
+$noColor = false;
+
+foreach ($args as $arg) {
+    if (str_starts_with($arg, '--rule=')) {
+        $ruleSelector = substr($arg, 7);
+    } elseif ($arg === '--backup') {
+        $backup = true;
+    } elseif ($arg === '--no-color') {
+        $noColor = true;
+    } elseif ($command === null && in_array($arg, ['plan', 'apply'], true)) {
+        $command = $arg;
+    } elseif ($targetPath === null && !str_starts_with($arg, '-')) {
+        $targetPath = $arg;
+    }
+}
+
+if ($command === null || $targetPath === null) {
+    echo "\033[31mError: Both <command> ('plan' or 'apply') and <path> are required.\033[0m\n\n";
+    printUsage();
+    exit(1);
+}
+
+if (!file_exists($targetPath)) {
+    echo "\033[31mError: Target path does not exist: {$targetPath}\033[0m\n";
+    exit(1);
+}
+
+$engine = new MigrationEngine();
+echo "\033[1;34m[EidCloud-Migrate]\033[0m Scanning '{$targetPath}' with rule set: \033[1m{$ruleSelector}\033[0m...\n";
+
+try {
+    $plan = $engine->plan($targetPath, $ruleSelector);
+
+    if ($plan->totalChanges === 0) {
+        echo "\033[32m✔ No changes needed. All files match modern standards!\033[0m\n";
+        exit(0);
+    }
+
+    echo "\n\033[1;33mPlanned transformations:\033[0m Found {$plan->totalChanges} change(s) across {$plan->totalFilesAffected} file(s).\n\n";
+
+    foreach ($plan->filePlans as $filePath => $info) {
+        echo "\033[1;37mFile: \033[4m{$filePath}\033[0m (" . count($info['rules_applied']) . " rule(s): " . implode(', ', $info['rules_applied']) . ")\n";
+        if (!$info['syntax_valid']) {
+            echo "\033[31m  [SYNTAX ERROR WARNING] Generated AST code failed syntax validation:\033[0m\n";
+            echo "  " . trim((string)$info['syntax_error']) . "\n";
+        }
+
+        $diffOutput = $info['diff'];
+        if (!$noColor) {
+            $diffOutput = DiffFormatter::colorize($diffOutput);
+        }
+        echo $diffOutput . "\n";
+    }
+
+    if ($command === 'plan') {
+        echo "\033[1;36m[Plan complete]\033[0m To apply these changes, run:\n";
+        echo "  php bin/eidcloud-migrate apply {$targetPath} --rule={$ruleSelector}" . ($backup ? " --backup" : "") . "\n";
+        exit(0);
+    }
+
+    if ($command === 'apply') {
+        echo "\033[1;33mApplying transformations...\033[0m\n";
+        $result = $engine->applyPlan($plan, $backup);
+        echo "\033[32m✔ Successfully migrated {$result['files_migrated']} file(s) ({$result['total_changes']} transformations)!\033[0m\n";
+        if ($backup && !empty($result['backups'])) {
+            echo "\033[36mℹ Backups created:\033[0m\n";
+            foreach ($result['backups'] as $bak) {
+                echo "  • {$bak}\n";
+            }
+        }
+        exit(0);
+    }
+} catch (\Throwable $e) {
+    echo "\033[31mFatal error: " . $e->getMessage() . "\033[0m\n";
+    exit(1);
+}

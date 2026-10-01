@@ -1,0 +1,12 @@
+{
+  "description": "Universal AST-driven code migration and syntax transformation engine with style-preserving refactoring in pure PHP",
+  "topics": [
+    "eidcloud",
+    "code-migration",
+    "ast-refactoring",
+    "syntax-transformation",
+    "code-modernizer",
+    "developer-tools",
+    "php8"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "eidcloud/code-migration",
+  "description": "Universal AST-driven code migration and syntax transformation engine with style-preserving refactoring in pure PHP",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Eng. MHD. Shadi AL-Hasan",
+      "email": "shadi@eidcloud.com",
+      "role": "Author & Maintainer"
+    }
+  ],
+  "require": {
+    "php": ">=8.2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "EidCloud\\CodeMigration\\": "src/"
+    }
+  },
+  "bin": [
+    "bin/eidcloud-migrate"
+  ],
+  "scripts": {
+    "test": "php tests/run_tests.php"
+  },
+  "config": {
+    "sort-packages": true
+  }
+}
